@@ -1,4 +1,11 @@
 {
   "HOME": "/",
-  "COUNTER": "/counter"
+  "COUNTER": "/counter",
+  "AUTH": "/auth",
+  "TASK": "/task",
+  "ACCOUNT" : "/account",
+  "SETTING" : "/setting",
+  "ENTRY" : "/entry",
+  "PROFILE" : "/profile",
+  "PROXY" : "/proxy"
 }

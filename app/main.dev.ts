@@ -11,10 +11,11 @@
 import 'core-js/stable';
 import 'regenerator-runtime/runtime';
 import path from 'path';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 import MenuBuilder from './menu';
+import { getUserFromLocalStorage } from './utils/User';
 
 export default class AppUpdater {
   constructor() {
@@ -25,6 +26,8 @@ export default class AppUpdater {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let loginWindow: BrowserWindow | null = null;
+
 
 if (process.env.NODE_ENV === 'production') {
   const sourceMapSupport = require('source-map-support');
@@ -48,7 +51,7 @@ const installExtensions = async () => {
   ).catch(console.log);
 };
 
-const createWindow = async () => {
+const createMainWindow = async () => {
   if (
     process.env.NODE_ENV === 'development' ||
     process.env.DEBUG_PROD === 'true'
@@ -58,8 +61,9 @@ const createWindow = async () => {
 
   mainWindow = new BrowserWindow({
     show: false,
-    width: 1024,
-    height: 728,
+    width: 1228,
+    height: 768,
+    frame:false,
     webPreferences:
       (process.env.NODE_ENV === 'development' ||
         process.env.E2E_BUILD === 'true') &&
@@ -100,6 +104,66 @@ const createWindow = async () => {
   new AppUpdater();
 };
 
+
+const createLoginWindow = async () => {
+
+  if (
+    process.env.NODE_ENV === 'development' ||
+    process.env.DEBUG_PROD === 'true'
+  ) {
+    await installExtensions();
+  }
+
+  loginWindow = new BrowserWindow({
+    show: false,
+    width: 640,
+    height: 375,
+    minHeight: 375,
+    minWidth: 640,
+    maxHeight: 375,
+    maxWidth: 640,
+    frame:false,
+    webPreferences:
+      (process.env.NODE_ENV === 'development' ||
+        process.env.E2E_BUILD === 'true') &&
+      process.env.ERB_SECURE !== 'true'
+        ? {
+          nodeIntegration: true,
+        }
+        : {
+          preload: path.join(__dirname, 'dist/renderer.prod.js'),
+        },
+  });
+
+  loginWindow.loadURL(`file://${__dirname}/app.html#/auth`);
+
+  // @TODO: Use 'ready-to-show' event
+  //        https://github.com/electron/electron/blob/master/docs/api/browser-window.md#using-ready-to-show-event
+  loginWindow.webContents.on('did-finish-load', () => {
+    if (!loginWindow) {
+      throw new Error('LoginWindow is not defined');
+    }
+    if (process.env.START_MINIMIZED) {
+      loginWindow.minimize();
+    } else {
+      loginWindow.show();
+      loginWindow.focus();
+    }
+  });
+
+  loginWindow.on('closed', () => {
+    loginWindow = null;
+  });
+
+  const menuBuilder = new MenuBuilder(loginWindow);
+  menuBuilder.buildMenu();
+
+  // Remove this if your app does not use auto updates
+  // eslint-disable-next-line
+  new AppUpdater();
+}
+
+
 /**
  * Add event listeners...
  */
@@ -114,13 +178,57 @@ app.on('window-all-closed', () => {
 
 if (process.env.E2E_BUILD === 'true') {
   // eslint-disable-next-line promise/catch-or-return
-  app.whenReady().then(createWindow);
+  app.whenReady().then(createMainWindow);
 } else {
-  app.on('ready', createWindow);
+  app.on('ready', async () => {
+    await auth();
+  });
 }
 
-app.on('activate', () => {
+const auth = async () => {
+  let setting = await getUserFromLocalStorage();
+  let auth_status = false;
+  if(auth_status) {
+    console.log("auth status", auth_status);
+    await  createMainWindow()
+  }
+  else {
+    console.log("auth status", auth_status);
+    await  createLoginWindow()
+  }
+};
+
+ipcMain.on('activated', async () => {
+  await createMainWindow();
+  if(loginWindow){
+    loginWindow.close();
+    loginWindow = null;
+  }
+
+});
+
+ipcMain.on('quit-app', () => {
+  console.log("app quit--background");
+  app.quit()
+
+});
+
+
+ipcMain.on('hide-app', () => {
+  if(mainWindow) {
+    mainWindow.hide();
+  }
+  if(loginWindow) {
+    loginWindow.minimize();
+  }
+});
+
+
+app.on('activate',  async () => {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
-  if (mainWindow === null) createWindow();
+  if (BrowserWindow.getAllWindows().length === 0) {
+    await createLoginWindow();
+  }
+  // if (mainWindow === null) createMainWindow();
 });
